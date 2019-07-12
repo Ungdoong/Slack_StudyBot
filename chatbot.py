@@ -13,8 +13,8 @@ from slack.web.classes.interactions import MessageInteractiveEvent
 from slackeventsapi import SlackEventAdapter
 from datetime import datetime
 
-SLACK_TOKEN =''
-SLACK_SIGNING_SECRET =''
+SLACK_TOKEN ='xoxb-688411139621-678345631491-5eefUU4BLzHzWuQ38aZibDNK'
+SLACK_SIGNING_SECRET ='6006c95d2dace39b4928a199c18d8e24'
 
 app = Flask(__name__)
 # /listening 으로 슬랙 이벤트를 받습니다.
@@ -32,6 +32,9 @@ class User:
         self.study_group = 0 if study_group is None else study_group
         #study_group = 페어가 없음 : 0 or 페어가 존재 : 1 or 페어을 찾는 중 : 2
         self.study_pair = 0 if study_pair is None else study_pair
+
+    def toString(self):
+        return self.user_id + self.channel_id + self.topic + str(self.study_group) + str(self.study_pair)
 
 
 # 크롤링 함수 구현하기
@@ -278,10 +281,20 @@ def load_CSV(filename):
 #유저 리스트를 CSV파일에 저장
 def save_CSV(filename, user_list):
     with open(filename, 'w') as file:
-        for user in user_list:
-            string = ','.join([user.user_id, user.channel_id, user.topic, str(user.study_group),str(user.study_pair)])
-            string += '\n'
-            file.write(string)
+        if filename == 'group_list.csv' or filename == 'pair_list.csv':
+            string_list = []
+            line = ''
+            for group in user_list:
+                for user in group:
+                    string_list.append(user.toString())
+                line = ','.join(string_list) + '\n'
+            file.write(line)
+        else:
+            for user in user_list:
+                string = ','.join(
+                    [user.user_id, user.channel_id, user.topic, str(user.study_group), str(user.study_pair)])
+                string += '\n'
+                file.write(string)
 
 def group_matching(group_wait_list, group_list):
     users_list = []
@@ -418,33 +431,36 @@ def on_button_clicked():
         for user in user_list:
             if user.user_id == user_id and user.study_group == 1:
                 action_id = 'already_group'
+                break
             elif user.user_id == user_id and user.study_group == 2:
                 action_id = 'searching_group'
+                break
             elif user.user_id == user_id and user.study_group == 0:
                 user.study_group = 2
                 group_wait_list.append(user)
                 #TODO:그룹 매칭 함수
                 group_wait_list, group_list, group_matching_flag \
                     = group_matching(group_wait_list, group_list)
-            else:
-                action_id = 'none_user'
-        if not user_list:
+                break
+            action_id = 'none_user'
+        if len(user_list) == 0:
             action_id = 'none_user'
     elif action_id == 'study_pair':
         for user in user_list:
             if user.user_id == user_id and user.study_pair == 1:
                 action_id = 'already_pair'
+                break
             elif user.user_id == user_id and user.study_pair == 2:
                 action_id = 'searching_pair'
+                break
             elif user.user_id == user_id and user.study_pair == 0:
                 user.study_pair = 2
                 pair_wait_list.append(user)
                 #TODO:페어 매칭 함수
                 pair_wait_list, pair_list, pair_matching_flag \
                     = pair_matching(pair_wait_list, pair_list)
-
-            else:
-                action_id = 'none_user'
+                break
+            action_id = 'none_user'
         if not user_list:
             action_id = 'none_user'
     elif action_id == 'already_group_yes':
@@ -456,6 +472,7 @@ def on_button_clicked():
                 #TODO:그룹 매칭 함수
                 group_wait_list, group_list, group_matching_flag \
                     = group_matching(group_wait_list, group_list)
+                break
             else:
                 return "OK", 200
         if not user_list:
@@ -478,10 +495,15 @@ def on_button_clicked():
         for user in user_list:
             if user.user_id == user_id and user.study_pair == 1:
                 user.study_pair = 2
+                for i in range(len(pair_list)):
+                    if pair_list[i].user_id == user_id:
+                        pair_list.pop(i)
+                        break
                 pair_wait_list.append(user)
                 #TODO:페어 매칭 함수
                 pair_wait_list, pair_list, pair_matching_flag \
                     = pair_matching(pair_wait_list, pair_list)
+                break
             else:
                 return "OK", 200
         if not user_list:
@@ -491,6 +513,7 @@ def on_button_clicked():
             for member in pair:
                 if user_id == member.user_id:
                     breaked_pair = pair
+                    break
         #그룹원에게 메시지
         for index in range(len(pair)):
             matching_blocks = _matching_breaking("pair", breaked_pair)
@@ -526,18 +549,18 @@ def on_button_clicked():
         return "OK", 200
     else:
         topic = action_id
-        print(len(user_list))
+        already_user = False
         if len(user_list) > 0:
             for user in user_list:
                 if user_id == user.user_id:
                     user.topic = topic
-                else:
-                    user_list.append(User(user_id=user_id, channel_id=channel, topic=topic))
-        else:
+                    already_user = True
+                    break
+        if already_user == False:
             user_list.append(User(user_id=user_id, channel_id=channel, topic=topic))
-        
+
     category_blocks = _button_response(action_id, user_id)
-    
+
     slack_web_client.chat_postMessage(
         channel=click_event.channel.id,
         blocks=extract_json(category_blocks)
@@ -559,6 +582,10 @@ def on_button_clicked():
         )
 
     save_CSV('user_list.csv', user_list)
+    save_CSV('group_list.csv', group_list)
+    save_CSV('pair_list.csv', pair_list)
+    save_CSV('group_wait_list.csv', group_wait_list)
+    save_CSV('pair_wait_list.csv', pair_wait_list)
     
     return "OK", 200
 
